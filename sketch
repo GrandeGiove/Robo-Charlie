@@ -1,0 +1,113 @@
+#include <Servo.h>
+
+//Pin di input del ponte H
+
+const int pinIngresso1 = 5;	//collegato al pin 3  dell'L293D
+const int pinIngresso2 = 4;	//collegato al pin 6  dell'L293D
+const int pinIngresso3 = 7;	//collegato al pin 11 dell'L293D
+const int pinIngresso4 = 6;	//collegato al pin 14 dell'L293D
+
+const int periodoStampaSuSeriale = 250;
+unsigned long ritardoSuSeriale = 0;
+
+//Misuratore di distanza con sensore ad ultrasuoni SRF05
+int durata;			//durata dell'impulso
+int distanza;		//distanza dell'oggetto
+int minimaDistanza = 10; //distanza di soglia a cui il robot deve cambiare direzione
+int pin_segnale = 8;	//pin Arduino a cui è collegato il sensore SRF05
+int baud_rate = 9600;
+
+//Pulsante ON/OFF
+int Pulsante = 9;		//pin di ingresso dove è collegato il pulsante
+int val = 0;		    //si userà val per conservare lo Stato del Pin 
+					    //di ingresso a cui è collegato il pulsante
+//int StatoPulsante = 0;
+
+// Segnalatori LED
+int pinVerde =  10;
+int pinGiallo = 11;
+int pinRosso =  12;
+
+// definizione degli stati  
+#define VAI_AVANTI  0  
+#define GIRA_SX     1  
+  
+int stato = VAI_AVANTI;   // 0 = vai avanti (DEFAULT), 1 = gira a sinistra 
+
+
+void setup()
+{
+  Serial.begin(baud_rate);
+  pinMode(pinRosso,  OUTPUT);
+  pinMode(pinGiallo, OUTPUT);
+  pinMode(pinVerde,  OUTPUT);
+  pinMode(pin_segnale, OUTPUT);
+  //pinMode(Pulsante, INPUT);     // imposta il pin digitale come input 
+
+  digitalWrite(pinIngresso1, OUTPUT);
+  digitalWrite(pinIngresso2, OUTPUT);
+  digitalWrite(pinIngresso3, OUTPUT);
+  digitalWrite(pinIngresso4, OUTPUT);
+}
+
+
+
+
+void loop()
+{
+  
+  	
+  
+
+  digitalWrite(pin_segnale, LOW);      // viene posto a LOW pin, per 2 microsecondi                                       // prima di inviare un breve impulso di trigger
+  delayMicroseconds(2); 
+  digitalWrite(pin_segnale, HIGH);     // invia un impulso di trigger
+  delayMicroseconds(10);               // di 10 microsecondi
+  digitalWrite(pin_segnale, LOW);      // pone il pin al LOW in attesa che l'impulso torni indietro
+  pinMode(pin_segnale, INPUT);
+  durata = pulseIn(pin_segnale, HIGH); // legge l'eco dell'impulso emesso in microsecondi
+  distanza = durata/58;                // divide la durata per 58 per ottenere la distanza in cm
+  Serial.println(distanza);            // stampa sul Serial Monitor il valore della distanza
+  delay(100);                          // attende 100 millisecondi prima di incominciare una nuova misura
+
+{
+  if(distanza < 15)
+    {
+    digitalWrite(pinRosso,  HIGH);
+    digitalWrite(pinGiallo, HIGH);
+    digitalWrite(pinVerde,  LOW);
+    }
+    
+   else if(distanza < 30)
+    {
+    digitalWrite(pinRosso,  HIGH);
+    digitalWrite(pinGiallo, HIGH);
+    digitalWrite(pinVerde,  HIGH);
+    }
+    
+    else
+    {
+    digitalWrite(pinRosso,  LOW);
+    digitalWrite(pinGiallo, LOW);
+    digitalWrite(pinVerde,  LOW);
+    }
+}
+
+//val = digitalRead(Pulsante);
+  //if(val == HIGH)
+  		{
+  			digitalWrite(pinIngresso1, LOW);
+  			digitalWrite(pinIngresso2, HIGH);
+  			digitalWrite(pinIngresso3, LOW);
+  			digitalWrite(pinIngresso4, HIGH);
+  		}
+  		//else
+  	/*	{
+  			digitalWrite(pinIngresso1, LOW);
+  			digitalWrite(pinIngresso2, LOW);
+  			digitalWrite(pinIngresso3, LOW);
+  			digitalWrite(pinIngresso4, LOW);
+  		}
+*/
+
+}
