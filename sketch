@@ -1,125 +1,318 @@
-#include <Servo.h>
+//Robot multifunzione:
+//Programma:
+//0. Fermo
+//1. Movimento evitando ostacoli
+//2. Movimento seguendo oggetto posto di fronte al sensore
+//3. Piano virtuale: mettendo la mano di fronte al sensore a varie distanze si generano diverse note
+//4. Balletto: il robot balla sulle note di "Fra Martino campanaro"
+//5. .....
 
-//Pin di input del ponte H
-int pinIngresso1 = 5							 //collegato al pin 3  dell'L293D
-int pinIngresso2 = 4							 //collegato al pin 6  dell'L293D
-int pinIngresso3 = 7; 							 //collegato al pin 11 dell'L293D
-int pinIngresso4 = 6							 //collegato al pin 14 dell'L293D
+#include <Servo.h>								// include la libreria Servo.h per controllare il servo
 
-int Pulsante = 9;
-int statoPulsante = 0;
+#define PWMA 3									// Collegamento pin 3 Arduino di Enable1 del ponte-H 
+#define PWMB 5									// Collegamento pin 5 Arduino di Enable2 del ponte-H 
+#define MOTDX1 4								// Collegamento con ponte-H (pin 7 uscita motore)
+#define MOTDX2 2								// Collegamento con ponte-H (pin 2 uscita motore)
+#define MOTSX1 8								// Collegamento con ponte-H (pin 15 uscita motore)
+#define MOTSX2 7								// Collegamento con ponte-H (pin 10 uscita motore)
+#define PWM_SPEED 255							// fissa la velocità del motore a 255
+#define pinTesta 10								// definisce il pin a cui è collegato il servo per la scansione
+#define pinSegnale 12							// pin Arduino a cui è collegato il sensore SRF05
+#define BAUD_RATE 9600							// fissa la velocità di trasmissione seriale a 9600 baud
+int direzione = 0;								// definisce la variabile di tipo integer assegnando il valore zero
+int grad [] = {90, 0, 180};						// definisce un array(matrice)  di interi i cui valori indicano i gradi a cui 
+int x = 10;												// il servo deve portarsi per eseguire le rilevazioni delle distanze;
+int durata;										// definisce una variabile di tipo integer
 
-// Segnalatori LED
-int pinVerde =  10;
-int pinGiallo = 11;
-int pinRosso =  12;
 
-//Misuratore di distanza con sensore ad ultrasuoni SRF05
-unsigned long durata;           				 //durata dell'impulso
-unsigned int distanza;          				 //distanza dell'oggetto
-int minimaDistanza = 10;  						 //distanza di soglia a cui il robot deve cambiare direzione
-int pin_segnale = 8;      						 //pin Arduino a cui è collegato il sensore SRF05
-int baud_rate = 9600;
-unsigned int misura_distanza()
-{
-	pinMode(pin_segnale, OUTPUT);
+// distanza dell'oggetto
+int distanza = 0;								// definisce la variabile di tipo integer assegnando il valore zero
+const int numOfReadings = 3;                    // numero di letture da prendere / elementi dell'array
+int readings [numOfReadings];                   // memorizza le letture di distanza in un array
+int arrayIndex = 0;                             // arrayIndex della voce corrente nella matrice
+int total = 0;                                  // memorizza il totale cumulativo
+int avgDistance = 0;                            // memorizza il valore medio
 
-	digitalWrite(pin_segnale, LOW);        		// viene posto a LOW pin, per 2 microsecondi
-												// prima di inviare un breve impulso di trigger
-	delayMicroseconds(2);
-	digitalWrite(pin_segnale, HIGH);            // invia un impulso di trigger
-	delayMicroseconds(10);               		// di 10 microsecondi
-	digitalWrite(pin_segnale, LOW);      		// pone il pin al LOW in attesa che l'impulso torni indietro
-	pinMode(pin_segnale, INPUT);
-	unsigned long durata = pulseIn(pin_segnale, HIGH); // legge l'eco dell'impulso emesso in microsecondi
-	delay(50);
-	unsigned int distanza = durata / 58;               // divide la durata per 58 per ottenere la distanza in cm
-	Serial.print("distanza: ");
-	Serial.print(distanza);   					// stampa sul Serial Monitor il valore della distanza
-	Serial.print("cm: ");
-	Serial.println();
-	return distanza;
-}
+int sogliaStop;
+int sogliaSter;
+int sogliaRall;
+
+boolean isAvanti;								// definisce dei valori booleani ad una variabile
+int randNumber = 0;								// definisce una variabile intera con valore zero
+int tmp;										// definisce una variabile "tempo"
+
+
+Servo testa;									// inizializza un oggetto di tipo Servo, nell’esempio io l’ho chiamato testa 
+												// in quanto ho immaginato che il sensore fosse posizionato sulla testa del robot
 
 void setup()
 {
-	Serial.begin(baud_rate);
-	pinMode(pinRosso,  OUTPUT);
-	pinMode(pinGiallo, OUTPUT);
-	pinMode(pinVerde,  OUTPUT);
+	Serial.begin(BAUD_RATE);					//apre la porta seriale a ricevere dati
 
+	pinMode(MOTDX1, OUTPUT);
+	pinMode(MOTDX2, OUTPUT);
+	pinMode(MOTSX1, OUTPUT);
+	pinMode(MOTSX2, OUTPUT);
+	pinMode(PWMA, OUTPUT);
+	pinMode(PWMB, OUTPUT);
+	pinMode(pinSegnale, OUTPUT);
+	
 
-	pinMode(pinIngresso1, OUTPUT);
-	pinMode(pinIngresso2, OUTPUT);
-	pinMode(pinIngresso3, OUTPUT);
-	pinMode(pinIngresso4, OUTPUT);
+	//Spengo i motori
+	digitalWrite(PWMA, LOW);
+	digitalWrite(PWMB, LOW);
+
+	randomSeed(analogRead(0));
+
+	randNumber = 0;
+	isAvanti = true;
+
+	testa.attach(pinTesta);						// indica all’oggetto testa quale è il pin a cui è collegato il servo (linea 46) e 
+	testa.write(90);							// imposta a 90° ossia nella posizione centrale il servo con l’uso del metodo write
+								
+	sogliaStop = 20;							// soglia di stop / retromarcia
+	sogliaSter = 30;							// distanza a cui muovere lo sterzo
+	sogliaRall = 50;							// distanza a cui moderare la velocità
+
+	// creare loop di array per iterare su ogni elemento dell'array
+	for (int thisReading = 0; thisReading < numOfReadings; thisReading++)
+	{
+		readings[thisReading] = 0;
+
+	}
 }
-
 void loop()
-
 {
-	if(misura_distanza() > minimaDistanza)
+	distanza = letturaSensore();
+	
+	total = total - readings[arrayIndex];		 // sottrarre l'ultima distanza
+	readings[arrayIndex] = distanza;			 // Aggiungere distanza di lettura a matrice
+	total = total + readings[arrayIndex];		 // Aggiungere la lettura al totale
+	arrayIndex++;								 // Andare al prossimo elemento nella matrice
+
+	// Alla fine dell'array poi ricominciare
+	if(arrayIndex >= numOfReadings)
 	{
-		delay(1000);
-		avanza();
-		digitalWrite(pinRosso, HIGH);
-		digitalWrite(pinVerde, HIGH);
-		digitalWrite(pinGiallo, LOW);
+		arrayIndex = 0;
 	}
 
-	else if(misura_distanza() < minimaDistanza)
+	avgDistance = total / numOfReadings;		 // Calcolare la distanza media
+
+	Serial.print("MEDIA: ");
+	Serial.println(avgDistance);
+
+	if(isAvanti)
 	{
-		delay(1000);
-		sinistra();
-		digitalWrite(pinRosso, HIGH);
-		digitalWrite(pinVerde, HIGH);
-		digitalWrite(pinGiallo, HIGH);
+		if(avgDistance <= sogliaStop)
+		{
+			indietro(100);
+			delay(500);
+			int direz = valutaDirezione();		 // richiama una funzione nuova definita alle line 285-303, il cui scopo è valutare la distanza
+												 // di un oggetto secondo i punti in gradi definiti alla linea 23, questa funzione ritorna un valore
+												 // che può essere 0,1 o 2 secondo il lato con l’oggetto a maggiore distanza, quindi il lato verso cui dirigersi.
+			// if ( direz == 1 ) { giraD(180); }
+    		// if ( direz == 0 ) { avanti(100);}
+      		// if ( direz == 2 ) { giraS(180); }
+
+		}
+		else if(avgDistance <= sogliaRall)
+		{
+			//avanti(tmp);
+			// regola la velocità in base alla distanza dell'ostacolo
+			tmp = map(avgDistance, sogliaStop, sogliaRall, 0, 100);
+			
+
+			// se la distanza è inferiore ad una soglia, sterza a dx o sx in maniera casuale
+			if(avgDistance <= sogliaSter)
+			{
+				if(randNumber == 0) randNumber = random(1,100);
+				if(randNumber % 2)
+				{
+					giraD(180);
+					//valutaDirezione();
+				}
+				else
+				{
+					giraS(180);
+					//valutaDirezione();
+				}
+
+			}
+
+
+		}
+		else
+		{
+			avanti(100);
+		}
+
 	}
-	/*  else if (distanza<5)
-	  {
+	else
+	{
+		// se sta andando in retromarcia, continua finchè l'ostacolo non è a debita distanza
+		if(avgDistance <= sogliaRall)
+		{
+			indietro(100);
+		}
+		else
+		{
+			avanti(100);
+		}
 
-	     sinistra();
-	  digitalWrite(pinRosso, HIGH);
-	  digitalWrite(pinVerde, HIGH);
-	  digitalWrite(pinGiallo, HIGH);
-	  }
-	 */
+	}
+	// attende 100 millisecondi prima di incominciare una nuova misura
+	delay(100);
 }
 
-
-//Funzioni di Movimento
-
-void avanza()
+long letturaSensore()
 {
-	Serial.println("AVANTI");
-	digitalWrite(pinIngresso1, LOW);
-	digitalWrite(pinIngresso2, HIGH);
-	digitalWrite(pinIngresso3, LOW);
-	digitalWrite(pinIngresso4, HIGH);
+	unsigned long pulseTime;
+	unsigned long distanza;
+
+	digitalWrite(pinSegnale, LOW);      			// viene posto a LOW pin, per 2 microsecondi
+													// prima di inviare un breve impulso di trigger
+	delayMicroseconds(2);
+	digitalWrite(pinSegnale, HIGH); 			    // invia un impulso di trigger
+	delayMicroseconds(10);                  	 	// di 10 microsecondi
+	digitalWrite(pinSegnale, LOW);  			    // pone il pin al LOW in attesa che l'impulso torni indietro
+	pinMode(pinSegnale, INPUT);
+	durata = pulseIn(pinSegnale, HIGH);             // legge l'eco dell'impulso emesso in microsecondi
+	distanza = durata / 58;              		    // divide la durata per 58 per ottenere la distanza in cm
+	Serial.print("DISTANZA: ");
+	Serial.print(distanza);            				// stampa sul Serial Monitor il valore della distanza
+
+	return distanza;
 }
 
-void indietro()
+//funzioni guida avanti
+void avanti(int velocita)
 {
-	Serial.println("INDIETRO");
-	digitalWrite(pinIngresso1, HIGH);
-	digitalWrite(pinIngresso2, LOW);
-	digitalWrite(pinIngresso3, HIGH);
-	digitalWrite(pinIngresso4, LOW);
+	int vel = map(velocita, 0, 100, 180, 255);
+
+	//vel=255;
+	//vel=254;
+	//vel=0;
+
+	digitalWrite(MOTDX1, 1);
+	digitalWrite(MOTDX2, 0);
+	digitalWrite(MOTSX1, 1);
+	digitalWrite(MOTSX2, 0);
+
+	analogWrite(PWMA, vel);
+	analogWrite(PWMB, vel);
+	
+	//isAvanti = true;
+
+	Serial.print("AVANTI - Input: ");
+	Serial.print(velocita);
+	Serial.print(" - Output: ");
+	Serial.print(vel);
+
+}
+//funzioni guida indietro
+void indietro(int velocita)
+{
+	int vel = map(velocita, 0, 100, 180, 255);
+	vel = 255;
+
+	digitalWrite(MOTDX1, 0);
+	digitalWrite(MOTDX2, 1);
+	digitalWrite(MOTSX1, 0);
+	digitalWrite(MOTSX2, 1);
+
+	analogWrite(PWMA, vel);
+	analogWrite(PWMB, vel);
+	
+	//isAvanti = false;
+
+	Serial.print("INDIETRO - Input: ");
+	Serial.print(velocita);
+	Serial.print(" - Output: ");
+	Serial.print(vel);
+}
+//Gira a sinistra
+void giraS(int velocita)
+{
+	//STOP x 1/2 sec
+	alt();
+	delay(500);
+
+	//INDIETRO x 1/2 sec
+	indietro(100);
+	delay(500);
+
+	//STOP x 1/2 sec
+	alt();
+	delay(500);
+
+	//Gira Sinistra
+	digitalWrite(MOTDX1, 1);
+	digitalWrite(MOTDX2, 0);
+	digitalWrite(MOTSX1, 0);
+	digitalWrite(MOTSX2, 0);
+
+	analogWrite(PWMA, 100);
+	analogWrite(PWMB, 100);
+	delay(300);
+}
+//Gira a destra
+void giraD(int velocita)
+{
+	//STOP x 1/2 sec
+	alt();
+	delay(500);
+
+	//INDIETRO x 1/2 sec
+	indietro(100);
+	delay(500);
+
+	//STOP x 1/2 sec
+	alt();
+	delay(500);
+
+	//Gira Destra
+	digitalWrite(MOTDX1, 0);
+	digitalWrite(MOTDX2, 0);
+	digitalWrite(MOTSX1, 1);
+	digitalWrite(MOTSX2, 0);
+
+	analogWrite(PWMA, 100);
+	analogWrite(PWMB, 100);
+	delay(300);
 }
 
-void Stop()
+//STOP motori
+void alt()
 {
-	digitalWrite(pinIngresso1, LOW);
-	digitalWrite(pinIngresso2, LOW);
-	digitalWrite(pinIngresso3, LOW);
-	digitalWrite(pinIngresso4, LOW);
+	digitalWrite(MOTDX1, 0);
+	digitalWrite(MOTDX2, 0);
+	digitalWrite(MOTSX1, 0);
+	digitalWrite(MOTSX2, 0);
+
+	analogWrite(PWMA, 50);
+	analogWrite(PWMB, 50);
+	delay(100  );
 }
 
-void sinistra()
+
+
+int valutaDirezione()
 {
-	Serial.println("SINISTRA");
-	digitalWrite(pinIngresso1, LOW);
-	digitalWrite(pinIngresso2, LOW);
-	digitalWrite(pinIngresso3, LOW);
-	digitalWrite(pinIngresso4, HIGH);
+	alt();
+	for ( int g = 0; g < 3; g++)
+	{
+		testa.write( grad[g] );
+		delay(1000);
+
+		int val = sogliaStop;
+
+		if (distanza > val)
+		{
+			direzione = g;
+		}
+		distanza = val;
+	}
+	testa.write(90);
+	return direzione;
 }
+
